@@ -282,42 +282,7 @@ precis(m7)
 plot(precis(m7))
 
 
-# we see that model 2 is actually still getting most of the weight here, although there is some weight given to model 3 as well
-compare(m1,m2,m3,m4)
 
-# fit a model with only age
-m5 <- map(
-  alist(
-    has_desc ~ dbinom(1, p),
-    logit(p) <- a + ba*age_norm,
-    a ~ dnorm(0, 10),
-    ba ~ dnorm(0,10)
-  ), data=df
-)
-precis(m5)
-
-# let's try add an interaction term with age and Marshallese; we want to test the hypothesis that the relationship between having descendants and age is conditional on being Marshallese. We will do this by modelling beta-age as a linear model itself that depends on marshallese. Here we replace ba with gamma
-m6 <- map(
-  alist(
-    has_desc ~ dbinom(1, p),
-    logit(p) <- a + gamma*age_norm + bm*marshallese + bvk*vacc_status_known + bv*vacc_status,
-    gamma <- bm + bam*marshallese,  # this is our new term 
-    a ~ dnorm(0, 10),
-    bm ~ dnorm(0,10),
-    bam ~ dnorm(0,10),
-    bvk ~ dnorm(0,10),
-    bv ~ dnorm(0,10)
-  ), data=df
-)
-precis(m6)
-
-
-# extract samples from model m2, which has just intercept and Marshallese status
-# use these samples to calculate the difference in having descendants between Marshallese and non-Marshallese tips 
-# extract samples from the model fitting in m2 and m3; these samples form the posterior distributions for our variables we estimated
-post_m3 <- extract.samples(m3)
-
-# to describe the distribution of predicted probability of having descendants for Marshallese and non-Marshallese tips, we need to apply the logistic function to the linear model that generated the data; Marshallese is coded as a 1, so it will be calculated using a sample from the posterior for the intercept + a sample from the posterior for the slope of Marshallese; for non-Marshallese, this is coded as a 0, so bm drops out
 p3.lifts_weights <- logistic(post_m3$a + post_m3$bweights)
 p3.no_lifts_weights <- logistic(post_m3$a)
 
@@ -335,7 +300,7 @@ df_both = rbind(df_plants_m2,df_plants_m3)
 # this is pretty interesting. So basically, if you lift weights, you are almost 100% likely to care about the office plants; if you have a beard, you are very unlikely to care about the office plants
 ggplot(df_both)+ geom_density(aes(x=value, color=variable))+scale_color_manual(values=c("red","blue","green","black"))
 
-# now that we have a distribution, we can output a HPDI; here, we estimate that the 95% HPDI for the probability of having descendants given you are Marshallese is 0.43 to 0.68; meanwhile, the same probability for not Marshalles is 0.16 to 0.39
+# now that we have a distribution, we can output a HPDI
 HPDI(p3.lifts_weights, prob=0.95)
 HPDI(p3.no_lifts_weights, prob=0.95)
 HPDI(p3.beard, prob=0.95)
@@ -346,47 +311,3 @@ diff.beard <- p3.no_beard - p3.beard
 quantile(diff.beard, c(0.025,0.5,0.975))
 diff.weights <- p3.lifts_weights - p3.no_lifts_weights
 quantile(diff.weights, c(0.025,0.5,0.975))
-
-# given a probability, the odds ratio is p/1-p; so, so let's calculate that: 
-odds2_marshallese <- p2.desc.marsh/(1 - p2.desc.marsh)
-quantile(odds2_marshallese, c(0.025,0.5,0.975))
-
-odds3_marshallese <- p3.desc.marsh/(1 - p3.desc.marsh)
-quantile(odds3_marshallese, c(0.025,0.5,0.975))
-
-
-
-
-# MODEL AVERAGING
-# in chapter 6, we learned about averaging over the uncertainty in 2 models. I now want to apply that to average over predictions using both m2 and m3 
-
-# so make implied predictions, we need to set up dummy data to pass to link for all the variables in our model. For m2, that includes has_desc and marshallese; for m3, that includes has_desc, Marshallese, age, vacc_known, and vacc_status
-
-d.pred <- data.frame(
-  marshallese = c(0,0,1,1),   # not/not/marshallese/marshallese
-  vacc_status_known = c(0,1,0,1),   # known/unknown/known/unknown
-  vacc_status = c(0,0,1,1)   # vaccinated/unvaccinated/vaccinated/unvaccinated
-)
-# leaving out age for the moment: age_norm = seq(from=-2, to=2, length.out=10)
-
-
-# build prediction ensemble
-m.ensemble <- ensemble(m2,m4, data=d.pred)
-
-# summarize
-pred.p <- apply(m.ensemble$link, 2, mean)
-pred.p.PI <- apply(m.ensemble$link, 2, PI)
-
-# plot 
-# empty plot frame with good axes
-plot(0,0,type="n",xlab="has_desc/marshallese", ylab="proportion has desc", ylim=c(0,1), xaxt="n",xlim=c(1,4))
-axis(1, at=1:4, labels=c("0/0","1/0","0/1","1/1"))
-
-# plot raw data
-p <- by(df$has_desc, list(df$marshallese, df$vacc_status, df$vacc_status_known, df$index), mean)
-for (index in 1:20)
-  lines(1:4, as.vector(p[,,,index]), col=rangi2, lwd=1.5)
-
-# now superimpose posterior predictions
-lines(1:4, pred.p)
-shade(pred.p.PI, 1:4)
